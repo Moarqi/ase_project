@@ -1,12 +1,11 @@
 <?xml version="1.0"?>
 
 <package>
-  <name>exercise</name>
+  <name>ase</name>
   <version>0.0.0</version>
-  <description>The exercise package</description>
+  <description>ase project mapping test package</description>
 
-  <maintainer email="tkorthals@techfak.uni-bielefeld.de">Timo Korthals</maintainer>
-  <maintainer email="drudolph@techfak.uni-bielefeld.de">Daniel Rudolph</maintainer>
+  <maintainer email="mrothgaenger@techfak.uni-bielefeld.de">Markus Rothgaenger</maintainer>  
 
   <license>TODO</license>
   <buildtool_depend>catkin</buildtool_depend>

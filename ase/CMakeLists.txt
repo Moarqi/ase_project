@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(exercise)
+project(ase)
 
 find_package(OpenCV 4.2 REQUIRED)
 find_package(OpenMP REQUIRED)
@@ -24,11 +24,12 @@ else (OPENMP_FOUND)
   message("NO OpenMP FOUND!")
 endif (OPENMP_FOUND)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -Wall -Wno-deprecated-declarations -Ofast -Wno-write-strings -std=c++11 -march=sandybridge -mtune=haswell")
+set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -Wall -Wno-deprecated-declarations -Ofast -Wno-write-strings -std=c++11")
 
 catkin_package(
   CATKIN_DEPENDS
   roscpp
+  amiro_msgs
   LIBRARIES ${PROJECT_NAME}
 )
 
@@ -39,10 +40,10 @@ include_directories(
   includes
 )
 
-add_executable(mapping_with_known_poses
-  src/mapping_with_known_poses.cpp
+add_executable(mapping
+  src/proximity_mapping.cpp
   )
-target_link_libraries(mapping_with_known_poses
+target_link_libraries(mapping
   ${catkin_LIBRARIES}
   ${OpenCV_LIBRARIES}
   )

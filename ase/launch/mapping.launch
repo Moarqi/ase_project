@@ -2,7 +2,7 @@
 <launch>
 
   <!-- These are the arguments you can pass this launch file, for example paused:=true -->
-  <arg name="paused" default="false"/>
+  <arg name="paused" default="true"/>
   <arg name="use_sim_time" default="true"/>
   <arg name="gz_gui" default="false"/>
   <arg name="gz_headless" default="false"/>
@@ -12,7 +12,7 @@
 
   <!-- We resume the logic in empty_world.launch, changing only the name of the world to be launched -->
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
-    <arg name="world_name" value="$(find exercise)/worlds/cafe.world"/>
+    <arg name="world_name" value="$(find ase)/worlds/cafe.world"/>
     <arg name="debug" value="$(arg gz_debug)" />
     <arg name="gui" value="$(arg gz_gui)" />
     <arg name="paused" value="$(arg paused)"/>
@@ -21,25 +21,28 @@
     <arg name="verbose" value="$(arg gz_verbose)"/>
   </include>
   
-  <!-- Load the AMiRo+Laser with namespace amiro1 -->
+  <!-- Load the AMiRo with namespace amiro1 -->
   <include file="$(find amiro_description)/launch/amiro.launch" clear_params="true" ns="amiro1">
     <arg name="robot_name" value="amiro1" />
-    <arg name="robot_position" value="-x 0 -y 0 -z 0.1" />
+    <arg name="robot_position" value="-x 3.9 -y 0 -z 0.2 -R 0 -P 0 -Y -1.3" />
     <arg name="update_rate" value="$(arg gz_update_rate)" />
     <arg name="use_gazebo" value="true"/>
-    <arg name="robot_model" value="amiro_hokuyo.xacro" />
+    <arg name="enable_proximity_floor_mockup" value="true" />
+    <arg name="enable_proximity_ring_mockup" value="true" />
+    <arg name="robot_model" value="amiro_basic.xacro" />
   </include>
 
   <!-- Start rviz -->
-  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find exercise)/rviz/mapping_with_known_poses.rviz" respawn="true" />
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find ase)/rviz/mapping.rviz" respawn="true" />
 
   <!-- Start mapping -->
-  <node name="mapping_with_known_poses" pkg="exercise" type="mapping_with_known_poses" respawn="false" output="screen" cwd="ROS_HOME" clear_params="true">
-    <param name="ros_listener_topic" value="/amiro1/laser"/>
-    <param name="ros_publisher_topic" value="/map"/>
+  <node name="mapping" pkg="ase" type="mapping" respawn="false" output="screen" cwd="ROS_HOME" clear_params="true">
+    <!-- <param name="ros_listener_topic" value="/amiro1/laser"/> -->
+    <param name="ros_listener_topic" value="/amiro1/proximity_ring/values"/>
+    <param name="ros_publisher_topic_map" value="/map"/>
+    <param name="ros_publisher_topic_cmd" value="/amiro1/cmd_vel"/>
     <param name="dimension_x" value="10.2"/>
-    <param name="dimension_y" value="24.5"/>
-    <param name="max_reading_range" value="4.7" />
+    <param name="dimension_y" value="24.5"/>    
   </node>
 
 </launch>
