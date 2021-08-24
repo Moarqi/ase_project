@@ -46,26 +46,3 @@ target_link_libraries(mapping_with_known_poses
   ${catkin_LIBRARIES}
   ${OpenCV_LIBRARIES}
   )
-
-add_executable(beacon_navigation
-  src/beacon_navigation.cpp
-  )
-target_link_libraries(beacon_navigation
-  ${catkin_LIBRARIES}
-  ${Boost_LIBRARY_DIR}
-  )
-
-add_executable(line_following_node
-  src/line_following_node.cpp
-  )
-add_dependencies(line_following_node amiro_msgs_generate_messages_cpp)
-target_link_libraries(line_following_node
-  ${catkin_LIBRARIES}
-  )
-
-add_executable(wall_following
-  src/wall_following.cpp
-  )
-target_link_libraries(wall_following
-  ${catkin_LIBRARIES}
-  )
