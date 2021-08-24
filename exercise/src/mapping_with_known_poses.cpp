@@ -30,24 +30,24 @@ string rosPublisherTopic;
 ros::Publisher pub;
 
 // Map variables
-static int dimensionX = 9;    // (m)
-static int dimensionY = 9;    // (m)
+static int dimensionX = 9;         // (m)
+static int dimensionY = 9;         // (m)
 static double mapResolution = 0.1; // (m)
-static int mapDimensionX; // (cells)
-static int mapDimensionY; // (cells)
-static int mapEvaluationIter; // (1)
-#define mattype uint16_t // CV_8U == uchar, CV_16U == short, CV_32FC1 == float
+static int mapDimensionX;          // (cells)
+static int mapDimensionY;          // (cells)
+static int mapEvaluationIter;      // (1)
+#define mattype uint16_t           // CV_8U == uchar, CV_16U == short, CV_32FC1 == float
 #define mattypecv CV_16U
 #define maxValue 65535
-static cv::Mat hit, miss; // (1)
+static cv::Mat hit, miss;           // (1)
 static nav_msgs::OccupancyGrid ogm; // (P)
 
 // Robot and sensor setup
 static double robotOffsetX = dimensionX / 2.0f; // (m)
 static double robotOffsetY = dimensionY / 2.0f; // (m)
-static double maxReadingRange = 2.0f; // (m)
-static double alpha = mapResolution; // (m/cell)
-static double beta = 1 / 180.0 * M_PI; // (rad)
+static double maxReadingRange = 2.0f;           // (m)
+static double alpha = mapResolution;            // (m/cell)
+static double beta = 1 / 180.0 * M_PI;          // (rad)
 
 // program name
 const string programName = "mapping_with_known_poses";
@@ -59,14 +59,14 @@ inline void showMap() {
 #pragma omp parallel for
   for (int yi = 0; yi < mapDimensionY; yi++) {
     for (int xi = 0; xi < mapDimensionX; xi++) {
-      const char result = char((hit.at<mattype>(yi, xi) / (float) (hit.at<mattype>(yi, xi) + miss.at<mattype>(yi, xi))) * 100.0);
+      const char result = char((hit.at<mattype>(yi, xi) / (float)(hit.at<mattype>(yi, xi) + miss.at<mattype>(yi, xi))) * 100.0);
       ogm.data.at(yi * mapDimensionX + xi) = result;
     }
   }
   pub.publish(ogm);
 }
 
-void process(const sensor_msgs::LaserScan::ConstPtr &scan, const nav_msgs::Odometry::ConstPtr &odom) {
+void process(const sensor_msgs::LaserScan::ConstPtr& scan, const nav_msgs::Odometry::ConstPtr& odom) {
   static uint32_t iterator = 0;
 
   if (maxReadingRange >= scan->range_max) {
@@ -89,72 +89,60 @@ void process(const sensor_msgs::LaserScan::ConstPtr &scan, const nav_msgs::Odome
   tf::Matrix3x3 m(q);
   m.getRPY(roll, pitch, yaw);
 
-  // ###  START PROGRAMMING ###
   // Store the position (xx, xy) and orientation (xt) of the robot in the map
-  // const double xx =
-  // const double xy =
-  // const double xt =
+  const double xx = (robotOffsetX + odom->pose.pose.position.x) / mapResolution;
+  const double xy = (robotOffsetY + odom->pose.pose.position.y) / mapResolution;
 
-
-
-  // ###  END PROGRAMMING   ###
+  const double xt = yaw;
 
   // Update every cell regarding the scan
 #pragma omp parallel for
   for (int yi = 0; yi < mapDimensionY; yi++) {
     for (int xi = 0; xi < mapDimensionX; xi++) {
-      // ###  START PROGRAMMING ### (approx. 20 lines of code)
-      // Hint 1: Calculate the robot's position as cells in the map
-      // Hint 2: Make use of the atan2 function for calculating the orientation of a scan with respect to the robot's pose in the world
+      // calculate length of vector from robot position to cells center of mass and transform to world space
+      double r = sqrt(pow(double(xi + 0.5) - xx, 2) + pow(double(yi + 0.5) - xy, 2)) * mapResolution;
+      // calculate direction of vector from robot position to cells center of mass
+      double phi = atan2((yi + 0.5) - xy, (xi + 0.5) - xx) - xt;
 
+      // find sensor reading angle closest to vector from robot position current cell
+      int k = -1;
+      double minSensorAngleDeviation = INFINITY;
 
+      for (int j = 0; j < rangeSize; j++) {
+        double angleDeviation = abs(phi - (scanAngleMin + j * scanAngleIncrement));
+        if (angleDeviation < minSensorAngleDeviation) {
+          minSensorAngleDeviation = angleDeviation;
+          k = j;
+        }
+      }
+      double sensorReading = scan->ranges[k];
 
-
-
-
-
-
-
-
-      // Hint: Think about the conditions, when to update which cell
-      if (true /* replace true with proper condition */) {
-        // Do nothing if the cell is not inside the scan (this section remains empty)
-      } else if (true /* replace true with proper condition */) {
-        // Update the hit map cell
-        // hit.at<mattype>(yi, xi) = 
-      } else if (true /* replace true with proper condition */) {
-        // Update the miss map cell
-        // miss.at<mattype>(yi, xi) = 
+      // mark cell as occupied or free if relevant
+      if (r > min(maxReadingRange, sensorReading + (alpha / 2.0)) ||
+        abs(phi - (scanAngleMin + k * scanAngleIncrement)) > (beta / 2.0)) {
+        continue;
       }
 
-
-
-
-
-
-
-
-
-
-
-
-      // ###  END PROGRAMMING   ###
+      if (sensorReading < maxReadingRange && abs(r - sensorReading) < (alpha / 2.0)) {
+        hit.at<mattype>(yi, xi) = hit.at<mattype>(yi, xi) + 1;
+      } else if (r <= sensorReading) {
+        miss.at<mattype>(yi, xi) = miss.at<mattype>(yi, xi) + 1;
+      }
     }
   }
 
   // Print out some information and send the map every mapEvaluationIter'th iteration
   after = boost::posix_time::microsec_clock::local_time();
   msdiff = after - before;
-  ROS_INFO_STREAM("time for map update: " << msdiff.total_milliseconds() << "ms");
+  // ROS_INFO_STREAM("time for map update: " << msdiff.total_milliseconds() << "ms");
   if (!(++iterator % mapEvaluationIter)) {
     ROS_INFO("-- Publish map --");
     ogm.header.stamp = scan->header.stamp;
     showMap();
   }
-
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
 
   ROS_INFO("Start: %s", programName.c_str());
 
