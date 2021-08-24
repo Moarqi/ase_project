@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(exercise)
 
-find_package(OpenCV 3.2 REQUIRED)
+find_package(OpenCV 4.2 REQUIRED)
 find_package(OpenMP REQUIRED)
 find_package(Boost COMPONENTS graph system REQUIRED)
 find_package(catkin REQUIRED COMPONENTS
