@@ -2,7 +2,7 @@
 <launch>
 
   <!-- These are the arguments you can pass this launch file, for example paused:=true -->
-  <arg name="paused" default="true"/>
+  <arg name="paused" default="false"/>
   <arg name="use_sim_time" default="true"/>
   <arg name="gz_gui" default="false"/>
   <arg name="gz_headless" default="false"/>
@@ -24,7 +24,7 @@
   <!-- Load the AMiRo with namespace amiro1 -->
   <include file="$(find amiro_description)/launch/amiro.launch" clear_params="true" ns="amiro1">
     <arg name="robot_name" value="amiro1" />
-    <arg name="robot_position" value="-x 3.9 -y 0 -z 0.2 -R 0 -P 0 -Y -1.3" />
+    <arg name="robot_position" value="-x 3.96 -y 0 -z 0.2 -R 0 -P 0 -Y -1.3" />
     <arg name="update_rate" value="$(arg gz_update_rate)" />
     <arg name="use_gazebo" value="true"/>
     <arg name="enable_proximity_floor_mockup" value="true" />
