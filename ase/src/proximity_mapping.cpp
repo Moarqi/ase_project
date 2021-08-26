@@ -55,7 +55,7 @@ static nav_msgs::OccupancyGrid ogm; // (P)
 double robotOffsetX = dimensionX / 2.0f; // (m)
 double robotOffsetY = dimensionY / 2.0f; // (m)
 
-const unsigned int ALIGNED_THRESHOLD = 200;
+const unsigned int ALIGNED_THRESHOLD = 300;
 const unsigned int TARGET_DISTANCE = 40000;
 
 static struct RingSensors {
@@ -73,15 +73,32 @@ enum MappingState {
   INIT,
   TURNTOBOUNDARY,
   SETDISTANCE,
-  PREPARETRACE,
   TRACEBOUNDARY,
   TURNRIGHT,
+  TURNLEFT,
 };
 
 MappingState state = MappingState::INIT;
 float x = 0.0;
 float y = 0.0;
 float phi = 0.0;
+
+float rightAngleValues[5] = {0.0, M_PI_2, M_PI, 3 * M_PI_2, 2 * M_PI};
+
+void align() {  
+  auto diff = 100.0;
+  auto angle = 0.0;
+
+  for (int i = 0; i < 5; i++) {
+    auto currentDiff = abs(rightAngleValues[i] - fmod(phi + 2 * M_PI, 2*M_PI));
+    if (currentDiff < diff) {
+      diff = currentDiff;
+      angle = rightAngleValues[i];
+    }
+  }
+  
+  phi = fmod(angle, 2 * M_PI);
+}
 
 geometry_msgs::Twist lastTwist;
 const auto minTimePoint = chrono::high_resolution_clock::time_point::min();
@@ -137,14 +154,16 @@ void publishTwist(geometry_msgs::Twist *twist) {
     x += deltaX;
     y += deltaY;
     phi += deltaPhi;
+    phi = fmod(phi + 2 * M_PI, 2 * M_PI);
   }
 
   twistPub.publish(*twist);
   lastPublish = chrono::high_resolution_clock::now();
   lastTwist = *twist;
 
-  // it might be better to only save the path of the robot (sample the coordinates) and later creating a map of it, 
-  // while scaling/correcting errors
+  // it might be better to only save the path of the robot (sample the
+  // coordinates) and later creating a map of it, while scaling/correcting
+  // errors
 
   // cross area when finished tracing boundary (diagonal?)
   // simply consider each point not taken to be occupied?!
@@ -167,11 +186,8 @@ void turnToBoundary(geometry_msgs::Twist *twist) {
   }
 
   // naive approach, twist robot such that front sensor values are equalized
-  ROS_INFO("nne val: %d", ringSensors.nne);  
-  ROS_INFO("nnw val: %d", ringSensors.nnw);  
-
-  if (ringSensors.nne < 20000) {    
-    twist->angular.z = -0.2;    
+  if (ringSensors.nne < 20000) {
+    twist->angular.z = -0.2;
   } else {
     if (ringSensors.nne > ringSensors.nnw) {
       twist->angular.z = -0.1;
@@ -186,7 +202,7 @@ void setDistance(geometry_msgs::Twist *twist) {
 
   if (abs((int)distance - (int)TARGET_DISTANCE) < ALIGNED_THRESHOLD) {
     ROS_INFO("switch to prepare");
-    state = MappingState::PREPARETRACE;
+    state = MappingState::TURNRIGHT;
     return;
   }
 
@@ -197,14 +213,16 @@ void setDistance(geometry_msgs::Twist *twist) {
 }
 
 void alignWithBoundary(geometry_msgs::Twist *twist) {
-  ROS_INFO("wnw, wsw: %d, %d", ringSensors.wnw, ringSensors.wsw);
   if (ringSensors.wsw < (uint)1 && ringSensors.wnw < (uint)1)
     return;
 
   // TODO: refine implementation here
-  if (ringSensors.wsw > 25000 && abs((int)ringSensors.wsw - (int)ringSensors.wnw) < ALIGNED_THRESHOLD) {
+  if (ringSensors.wsw > 25000 &&
+      abs((int)ringSensors.wsw - (int)ringSensors.wnw) < ALIGNED_THRESHOLD) {
     ROS_INFO("switch to trace");
     state = MappingState::TRACEBOUNDARY;
+    align();
+    return;
   }
 
   // naive approach, twist robot such that leftmost sensor values are equalized
@@ -221,24 +239,45 @@ void traceBoundary(geometry_msgs::Twist *twist) {
     return;
   }
 
-  if (ringSensors.wnw > ringSensors.wsw) {
-    twist->angular.z = -0.01;
-  } else {
-    twist->angular.z = 0.01;
+  if (ringSensors.wsw < 25000 && ringSensors.wnw < 25000) {
+    state = MappingState::TURNLEFT;
+    return;
   }
 
-  twist->linear.x = 0.1;
+  if (ringSensors.wnw > ringSensors.wsw) {
+    twist->angular.z = -0.1;
+  } else {
+    twist->angular.z = 0.1;
+  }
+
+  twist->linear.x = 0.08;
 
   publishTwist(twist);
 }
 
 void turnRight(geometry_msgs::Twist *twist) {
-  if (ringSensors.nne < 25000 && ringSensors.nnw < 25000 && abs((int)ringSensors.wsw - (int)ringSensors.wnw) < 2 * ALIGNED_THRESHOLD) {
+  if (ringSensors.nne < 30000 && ringSensors.nnw < 30000 &&
+      abs((int)ringSensors.wsw - (int)ringSensors.wnw) <
+          ALIGNED_THRESHOLD) {
     state = MappingState::TRACEBOUNDARY;
+    align();
     return;
   }
 
   twist->angular.z = -0.1;
+}
+
+void turnLeft(geometry_msgs::Twist *twist) {
+  // TODO: this will not work..
+  if (ringSensors.nne < 30000 && ringSensors.nnw < 30000 &&
+      abs((int)ringSensors.wsw - (int)ringSensors.wnw) <
+          2 * ALIGNED_THRESHOLD) {
+    state = MappingState::TRACEBOUNDARY;
+    align();
+    return;
+  }
+
+  twist->angular.z = 0.1;
 }
 
 void mainLoop() {
@@ -253,8 +292,8 @@ void mainLoop() {
   case MappingState::SETDISTANCE:
     setDistance(&twist);
     break;
-  case MappingState::PREPARETRACE:
-    alignWithBoundary(&twist);
+  case MappingState::TURNLEFT:
+    turnLeft(&twist);
     break;
   case MappingState::TRACEBOUNDARY:
     traceBoundary(&twist);
@@ -359,7 +398,7 @@ int main(int argc, char *argv[]) {
   hit = cv::Mat(mapDimensionY, mapDimensionX, mattypecv, cv::Scalar(1));
   miss = cv::Mat(mapDimensionY, mapDimensionX, mattypecv, cv::Scalar(1));
 
-  ros::Rate r(10);
+  ros::Rate r(50);
   auto iter = 0;
   while (ros::ok()) {
     ros::spinOnce();
