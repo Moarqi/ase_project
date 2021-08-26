@@ -8,6 +8,7 @@
 // amiro
 #include <amiro_msgs/UInt16MultiArrayStamped.h>
 // ROS
+#include <cmath>
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/synchronizer.h>
@@ -74,6 +75,7 @@ enum MappingState {
   SETDISTANCE,
   PREPARETRACE,
   TRACEBOUNDARY,
+  TURNRIGHT,
 };
 
 MappingState state = MappingState::INIT;
@@ -148,7 +150,9 @@ void publishTwist(geometry_msgs::Twist *twist) {
   // simply consider each point not taken to be occupied?!
 
   // hit.at<mattype>(yi, xi) = hit.at<mattype>(yi, xi) + 1;
-  miss.at<mattype>(x, y) = miss.at<mattype>(x, y) + 1;
+  int xi = round((x + robotOffsetX) / mapResolution);
+  int yi = round((y + robotOffsetY) / mapResolution);
+  miss.at<mattype>(yi, xi) = miss.at<mattype>(yi, xi) + 1;
 }
 
 void turnToBoundary(geometry_msgs::Twist *twist) {
@@ -167,11 +171,7 @@ void turnToBoundary(geometry_msgs::Twist *twist) {
   ROS_INFO("nnw val: %d", ringSensors.nnw);  
 
   if (ringSensors.nne < 20000) {    
-    if (ringSensors.ene > ringSensors.wnw) {
-      twist->angular.z = -0.1;
-    } else {
-      twist->angular.z = 0.1;
-    }
+    twist->angular.z = -0.2;    
   } else {
     if (ringSensors.nne > ringSensors.nnw) {
       twist->angular.z = -0.1;
@@ -191,9 +191,9 @@ void setDistance(geometry_msgs::Twist *twist) {
   }
 
   if (distance < TARGET_DISTANCE)
-    twist->linear.x = 0.05;
+    twist->linear.x = 0.01;
   else
-    twist->linear.x = -0.05;
+    twist->linear.x = -0.01;
 }
 
 void alignWithBoundary(geometry_msgs::Twist *twist) {
@@ -216,6 +216,11 @@ void alignWithBoundary(geometry_msgs::Twist *twist) {
 }
 
 void traceBoundary(geometry_msgs::Twist *twist) {
+  if (ringSensors.nne > TARGET_DISTANCE) {
+    state = MappingState::TURNRIGHT;
+    return;
+  }
+
   if (ringSensors.wnw > ringSensors.wsw) {
     twist->angular.z = -0.01;
   } else {
@@ -225,6 +230,15 @@ void traceBoundary(geometry_msgs::Twist *twist) {
   twist->linear.x = 0.1;
 
   publishTwist(twist);
+}
+
+void turnRight(geometry_msgs::Twist *twist) {
+  if (ringSensors.nne < 20000 && abs((int)ringSensors.wsw - (int)ringSensors.wnw) < ALIGNED_THRESHOLD) {
+    state = MappingState::TRACEBOUNDARY;
+    return;
+  }
+
+  twist->angular.z = -0.2;
 }
 
 void mainLoop() {
@@ -245,9 +259,12 @@ void mainLoop() {
   case MappingState::TRACEBOUNDARY:
     traceBoundary(&twist);
     break;
+  case MappingState::TURNRIGHT:
+    turnRight(&twist);
+    break;
   }
 
-  if (state == MappingState::TRACEBOUNDARY)
+  if (state == MappingState::TRACEBOUNDARY || state == MappingState::TURNRIGHT)
     publishTwist(&twist);
   else
     twistPub.publish(twist);
