@@ -233,12 +233,12 @@ void traceBoundary(geometry_msgs::Twist *twist) {
 }
 
 void turnRight(geometry_msgs::Twist *twist) {
-  if (ringSensors.nne < 20000 && abs((int)ringSensors.wsw - (int)ringSensors.wnw) < ALIGNED_THRESHOLD) {
+  if (ringSensors.nne < 25000 && ringSensors.nnw < 25000 && abs((int)ringSensors.wsw - (int)ringSensors.wnw) < 2 * ALIGNED_THRESHOLD) {
     state = MappingState::TRACEBOUNDARY;
     return;
   }
 
-  twist->angular.z = -0.2;
+  twist->angular.z = -0.1;
 }
 
 void mainLoop() {
