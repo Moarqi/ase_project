@@ -87,24 +87,6 @@
       <elevation>0</elevation>
       <heading_deg>0</heading_deg>
     </spherical_coordinates>
-    <light name='user_directional_light_0' type='directional'>
-      <pose>-9.73161 4.67752 1 0 -0 0</pose>
-      <diffuse>0.5 0.5 0.5 1</diffuse>
-      <specular>0.1 0.1 0.1 1</specular>
-      <direction>0.1 0.1 -0.9</direction>
-      <attenuation>
-        <range>20</range>
-        <constant>0.5</constant>
-        <linear>0.01</linear>
-        <quadratic>0.001</quadratic>
-      </attenuation>
-      <cast_shadows>1</cast_shadows>
-      <spot>
-        <inner_angle>0</inner_angle>
-        <outer_angle>0</outer_angle>
-        <falloff>0</falloff>
-      </spot>
-    </light>
     <state world_name='default'>
       <sim_time>118 206000000</sim_time>
       <real_time>120 291187095</real_time>
@@ -150,9 +132,6 @@
       </model>
       <light name='sun'>
         <pose>0 0 10 0 -0 0</pose>
-      </light>
-      <light name='user_directional_light_0'>
-        <pose>-9.73161 4.67752 1 0 -0 0</pose>
       </light>
     </state>
     <gui fullscreen='0'>

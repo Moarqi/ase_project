@@ -41,8 +41,8 @@
     <param name="ros_listener_topic" value="/amiro1/proximity_ring/values"/>
     <param name="ros_publisher_topic_map" value="/map"/>
     <param name="ros_publisher_topic_cmd" value="/amiro1/cmd_vel"/>
-    <param name="dimension_x" value="10.2"/>
-    <param name="dimension_y" value="24.5"/>    
+    <param name="dimension_x" value="5"/>
+    <param name="dimension_y" value="5"/>    
   </node>
 
 </launch>

@@ -13,6 +13,9 @@ packages to install apart from ros-noetic-desktop-full
 	- keep set distance to walls
 	- spiral to midpoint
 
+- represent obstacles as 2d primitives.
+	- check collision by "raytracing"
+
 ### papers
 
 - mapping using proximity sensors https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=7405014
