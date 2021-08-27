@@ -346,36 +346,41 @@ void moveToGoal(geometry_msgs::Twist *twist) {
 void mainLoop() {
   geometry_msgs::Twist twist;
   switch (state) {
-  case MappingState::INIT:
-    state = MappingState::TURNTOBOUNDARY;
-    break;
-  case MappingState::TURNTOBOUNDARY:
-    turnToBoundary(&twist);
-    break;
-  case MappingState::SETDISTANCE:
-    setDistance(&twist);
-    break;
-  case MappingState::SETDISTANCECORNER:
-    setDistanceCorner(&twist);
-    break;
-  case MappingState::TURNLEFT:
-    turnLeft(&twist);
-    break;
-  case MappingState::TRACEBOUNDARY:
-    traceBoundary(&twist);
-    break;
-  case MappingState::TURNRIGHT:
-    turnRight(&twist);
-    break;
-  case MappingState::ALIGNTOGOAL:
-    alignToGoal(&twist);
-    break;
-  case MappingState::ALIGN:
-    checkAlignment(&twist);
-    break;
-  case MappingState::STOP:
-    break;
+  // case MappingState::INIT:
+  //   state = MappingState::TURNTOBOUNDARY;
+  //   break;
+  // case MappingState::TURNTOBOUNDARY:
+  //   turnToBoundary(&twist);
+  //   break;
+  // case MappingState::SETDISTANCE:
+  //   setDistance(&twist);
+  //   break;
+  // case MappingState::SETDISTANCECORNER:
+  //   setDistanceCorner(&twist);
+  //   break;
+  // case MappingState::TURNLEFT:
+  //   turnLeft(&twist);
+  //   break;
+  // case MappingState::TRACEBOUNDARY:
+  //   traceBoundary(&twist);
+  //   break;
+  // case MappingState::TURNRIGHT:
+  //   turnRight(&twist);
+  //   break;
+  // case MappingState::ALIGNTOGOAL:
+  //   alignToGoal(&twist);
+  //   break;
+  // case MappingState::ALIGN:
+  //   checkAlignment(&twist);
+  //   break;
+  // case MappingState::STOP:
+  //   break;
   }
+  if (phi - 2* M_PI > -0.1)
+    twist.angular.z = 0;
+  else
+    twist.angular.z = 0.4;
+
 
   if (state != MappingState::TURNTOBOUNDARY && state != MappingState::SETDISTANCE)
     publishTwist(&twist);
