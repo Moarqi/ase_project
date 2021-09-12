@@ -134,7 +134,7 @@ const auto minROSTimePoint = ros::Time(0); // TODO: ew, please no eq check
 auto lastROSPublish = minROSTimePoint;
 
 float stripLimit = 0.0;
-float stripLimitIncrement = 1.5;
+float stripLimitIncrement = 0.5;
 float stripMapDistance = 0.0;
 
 void align() {
@@ -227,9 +227,9 @@ void writePath(Point goalDeviation) {
            goalDeviation.y, deviationFraction.x, deviationFraction.y);
   for (unsigned int i = 0; i < recordedPathLength; i++) {
     auto point = recordedPath[i];
-    ROS_INFO("writing point (%f, %f) -> (%f, %f)", point.x, point.y,
-             point.x + i * deviationFraction.x,
-             point.y + i * deviationFraction.y);
+    // ROS_INFO("writing point (%f, %f) -> (%f, %f)", point.x, point.y,
+    //          point.x + i * deviationFraction.x,
+    //          point.y + i * deviationFraction.y);
     int xi = round((point.x + i * deviationFraction.x + robotOffsetX) /
                    mapResolution);
     int yi = round((point.y + i * deviationFraction.y + robotOffsetY) /
@@ -239,6 +239,7 @@ void writePath(Point goalDeviation) {
 
     miss.at<mattype>(yi, xi) = miss.at<mattype>(yi, xi) + 5;
   }
+
   x += goalDeviation.x;
   y += goalDeviation.y;
 
@@ -355,6 +356,12 @@ void setDistanceCorner(geometry_msgs::Twist *twist) {
 
 void traceBoundary(geometry_msgs::Twist *twist, float _limit = -1) {
   if (ringSensors.nne > TARGET_DISTANCE) {
+    if (_limit > 0 && stripMapDistance < _limit) {
+      state = MappingState::STOP;
+      ROS_INFO("assume mapping done!");
+      return;
+    }
+
     state = MappingState::SETDISTANCECORNER;
     return;
   }
@@ -388,9 +395,6 @@ void alignWithBoundary(geometry_msgs::Twist *twist,
   unsigned int sensorDiff;
 
   switch (wallDir) {
-  case WallDirection::UNKNOWN:
-    ROS_WARN("cannot align when wall direction is unknown!");
-    return;
   case WallDirection::LEFT:
     sensorDiff = abs((int)ringSensors.wsw - (int)ringSensors.wnw);
     break;
@@ -400,6 +404,10 @@ void alignWithBoundary(geometry_msgs::Twist *twist,
   case WallDirection::BACK:
     sensorDiff = abs((int)ringSensors.ssw - (int)ringSensors.sse);
     break;
+  case WallDirection::UNKNOWN:
+  default:
+    ROS_WARN("cannot align whith unknown wall direction!");
+    return;
   }
 
   float minPhiDiff = 100.0;
@@ -411,13 +419,15 @@ void alignWithBoundary(geometry_msgs::Twist *twist,
   }
 
   if (ringSensors.nne < TARGET_DISTANCE - 1000 &&
-      ringSensors.nnw < TARGET_DISTANCE - 1000)
-    if (minPhiDiff < 0.25 && sensorDiff < ALIGNED_THRESHOLD) {
-      state = _nextState;
-      if (_align)
-        align();
-      return;
-    }
+      ringSensors.nnw < TARGET_DISTANCE - 1000) {
+        ROS_INFO("align phiDiff: %d, align sensorDiff: %d", minPhiDiff < 0.25, sensorDiff < ALIGNED_THRESHOLD);
+        if (minPhiDiff < 0.25 && sensorDiff < ALIGNED_THRESHOLD) {
+          state = _nextState;
+          if (_align)
+            align();
+          return;
+        }
+      }
 
   twist->angular.z = wallDir == WallDirection::LEFT ? -0.1 : 0.1;
 }
@@ -489,8 +499,10 @@ void moveToGoal(geometry_msgs::Twist *twist) {
   twist->linear.x = 0.1;
 }
 
+// TODO: add outer corner
 void findCorner(geometry_msgs::Twist *twist) {
   traceBoundary(twist);
+
   if (state == MappingState::SETDISTANCECORNER) {
     // TODO: if deviation to goal is too big -> assume obstacle!
     if (goalSet) {
@@ -500,17 +512,22 @@ void findCorner(geometry_msgs::Twist *twist) {
       y = goal.y;
 
       state = MappingState::STOP;
-      return;
     } else {
       for (int i = 0; i <= cornerIndex; i++) {
         auto point = corners[i];
         auto distance = abs(x - point.x) + abs(y - point.y);
         ROS_INFO("findCorner: distance to %dth corner: %f", i, distance);
+
         if (distance < 0.2) {
           writePath(Point{.x = point.x - x, .y = point.y - y});
+
           x = point.x;
           y = point.y;
-          state = MappingState::STOP;
+
+          turnAround();          
+          state = MappingState::ALIGNTOBOUNDARY;
+          nextState = MappingState::STRIP_MAP;
+
           return;
         }
       }
