@@ -8,7 +8,6 @@
 // amiro
 #include <amiro_msgs/UInt16MultiArrayStamped.h>
 // ROS
-#include <cmath>
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/synchronizer.h>
@@ -17,13 +16,16 @@
 #include <ros/ros.h>
 #include <sensor_msgs/LaserScan.h>
 #include <tf/transform_datatypes.h>
+
+#include <cmath>
 // OpenCV
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 // Helper
-#include <boost/date_time/posix_time/posix_time.hpp>
 #include <omp.h>
+
+#include <boost/date_time/posix_time/posix_time.hpp>
 using namespace std;
 
 // program name
@@ -59,11 +61,12 @@ const unsigned int ALIGNED_THRESHOLD = 200;
 const unsigned int TARGET_DISTANCE = 47000;
 const unsigned int MAX_PATH_LENGTH = 1000;
 const float PHI_OFFSET_FACTOR = 0.95; // 0.9 seems to be good
-const float RIGHT_ANGLE_VALUES[5] = {0.0, M_PI_2, M_PI, 3 * M_PI_2, 2 * M_PI};
+const float RIGHT_ANGLE_VALUES[5] = { 0.0, M_PI_2, M_PI, 3 * M_PI_2, 2 * M_PI };
 
 int mapEvaluationIter = 0;
 
-static struct RingSensors {
+static struct RingSensors
+{
   uint sse;
   uint ese;
   uint ene;
@@ -74,39 +77,43 @@ static struct RingSensors {
   uint ssw;
 } ringSensors;
 
-enum MappingState {
+enum MappingState
+{
+  ALIGN_BOUNDARY,
+  ALIGN_GOAL,
   ALIGN,
-  ALIGNTOBOUNDARY,
-  ALIGNTOGOAL,
-  FINDCORNER,
+  FIND_CORNER,
   INIT,
-  SETDISTANCE,
-  SETDISTANCECORNER,
+  MOVE_GOAL,
+  RESET,
+  SET_DISTANCE_CORNER,
+  SET_DISTANCE,
   STOP,
-  TRACEBOUNDARY,
-  TURNTOBOUNDARY,
-  MOVETOGOAL,
+  STRIP_CORRECT,
+  STRIP_CROSS,
   STRIP_MAP,
   STRIP_TRACE,
-  STRIP_CROSS,
-  STRIP_CORRECT,
+  TRACE_BOUNDARY,
 };
 
-enum WallDirection {
-  UNKNOWN,
+enum WallDirection
+{
+  BACK,
+  FRONT,
   LEFT,
   RIGHT,
-  BACK,
+  UNKNOWN,
 };
 
-struct Point {
+struct Point
+{
   float x;
   float y;
   float phi;
 };
 
 MappingState state = MappingState::INIT;
-MappingState nextState = MappingState::TRACEBOUNDARY;
+MappingState nextState = MappingState::TRACE_BOUNDARY;
 
 float x = 0.0;
 float y = 0.0;
@@ -134,16 +141,18 @@ const auto minROSTimePoint = ros::Time(0); // TODO: ew, please no eq check
 auto lastROSPublish = minROSTimePoint;
 
 float stripLimit = 0.0;
-float stripLimitIncrement = 0.5;
+float stripLimitIncrement = 0.1;
 float stripMapDistance = 0.0;
 
-void align() {
+void
+align()
+{
   auto diff = 100.0;
   auto angle = 0.0;
 
   for (int i = 0; i < 5; i++) {
     auto currentDiff =
-        abs(RIGHT_ANGLE_VALUES[i] - fmod(phi + 2 * M_PI, 2 * M_PI));
+      abs(RIGHT_ANGLE_VALUES[i] - fmod(phi + 2 * M_PI, 2 * M_PI));
     if (currentDiff < diff) {
       diff = currentDiff;
       angle = RIGHT_ANGLE_VALUES[i];
@@ -153,7 +162,9 @@ void align() {
   phi = fmod(angle, 2 * M_PI);
 }
 
-void turnAround() {
+void
+turnAround()
+{
   if (wallDir == WallDirection::LEFT)
     wallDir = WallDirection::RIGHT;
   else if (wallDir == WallDirection::RIGHT)
@@ -167,7 +178,9 @@ void turnAround() {
   }
 }
 
-void ringSubCallback(const amiro_msgs::UInt16MultiArrayStamped::ConstPtr ring) {
+void
+ringSubCallback(const amiro_msgs::UInt16MultiArrayStamped::ConstPtr ring)
+{
   if (ring->array.data.size() == 8) {
     ringSensors.ssw = ring->array.data[0];
     ringSensors.wsw = ring->array.data[1];
@@ -181,7 +194,9 @@ void ringSubCallback(const amiro_msgs::UInt16MultiArrayStamped::ConstPtr ring) {
 }
 
 // Format the inner representation as OGM and send it
-inline void showMap() {
+inline void
+showMap()
+{
 // Copy the probabilistic map data [0 .. 1] to the occupancy grid map format [0
 // .. 100] Reference:
 // http://docs.ros.org/melodic/api/nav_msgs/html/msg/OccupancyGrid.html
@@ -189,16 +204,18 @@ inline void showMap() {
   for (int yi = 0; yi < mapDimensionY; yi++) {
     for (int xi = 0; xi < mapDimensionX; xi++) {
       const char result =
-          char((hit.at<mattype>(yi, xi) /
-                (float)(hit.at<mattype>(yi, xi) + miss.at<mattype>(yi, xi))) *
-               100.0);
+        char((hit.at<mattype>(yi, xi) /
+              (float)(hit.at<mattype>(yi, xi) + miss.at<mattype>(yi, xi))) *
+             100.0);
       ogm.data.at(yi * mapDimensionX + xi) = result;
     }
   }
   pub.publish(ogm);
 }
 
-void recordPath() {
+void
+recordPath()
+{
   if (!(pathIter++ % 30)) {
     if (!(recordedPathLength < MAX_PATH_LENGTH)) {
       ROS_WARN("cannot record path: MAX_PATH_LENGTH exceeded!");
@@ -211,29 +228,34 @@ void recordPath() {
         return;
     }
 
-    recordedPath[recordedPathLength++] = Point{.x = x, .y = y};
+    recordedPath[recordedPathLength++] = Point{ .x = x, .y = y };
   }
 }
 
 // TODO: add hit for walls/obstacles..
-void writePath(Point goalDeviation) {
+void
+writePath(Point goalDeviation)
+{
   if (recordedPathLength < 1)
     return;
 
   auto deviationFraction =
-      Point{.x = goalDeviation.x / (float)recordedPathLength,
-            .y = goalDeviation.y / (float)recordedPathLength};
-  ROS_INFO("deviation and fraction: (%f, %f) -> (%f, %f)", goalDeviation.x,
-           goalDeviation.y, deviationFraction.x, deviationFraction.y);
+    Point{ .x = goalDeviation.x / (float)recordedPathLength,
+           .y = goalDeviation.y / (float)recordedPathLength };
+  ROS_INFO("deviation and fraction: (%f, %f) -> (%f, %f)",
+           goalDeviation.x,
+           goalDeviation.y,
+           deviationFraction.x,
+           deviationFraction.y);
   for (unsigned int i = 0; i < recordedPathLength; i++) {
     auto point = recordedPath[i];
     // ROS_INFO("writing point (%f, %f) -> (%f, %f)", point.x, point.y,
     //          point.x + i * deviationFraction.x,
     //          point.y + i * deviationFraction.y);
-    int xi = round((point.x + i * deviationFraction.x + robotOffsetX) /
-                   mapResolution);
-    int yi = round((point.y + i * deviationFraction.y + robotOffsetY) /
-                   mapResolution);
+    int xi =
+      round((point.x + i * deviationFraction.x + robotOffsetX) / mapResolution);
+    int yi =
+      round((point.y + i * deviationFraction.y + robotOffsetY) / mapResolution);
     // int xi = round((point.x + robotOffsetX) / mapResolution);
     // int yi = round((point.y + robotOffsetY) / mapResolution);
 
@@ -247,7 +269,9 @@ void writePath(Point goalDeviation) {
   recordedPathLength = 0;
 }
 
-void publishTwist(geometry_msgs::Twist *twist) {
+void
+publishTwist(geometry_msgs::Twist* twist)
+{
   auto ROSNow = ros::Time::now();
   if (lastROSPublish == minROSTimePoint)
     lastROSPublish = ROSNow;
@@ -279,37 +303,41 @@ void publishTwist(geometry_msgs::Twist *twist) {
   recordPath();
 }
 
-void turnToBoundary(geometry_msgs::Twist *twist) {
-  if (ringSensors.nne < (uint)1 && ringSensors.nnw < (uint)1)
-    return;
+// void
+// turnToBoundary(geometry_msgs::Twist* twist)
+// {
+//   if (ringSensors.nne < (uint)1 && ringSensors.nnw < (uint)1)
+//     return;
 
-  // TODO: this is bullshit, won't work for large deviation from wall
-  if (ringSensors.nne > 20000 &&
-      abs((int)ringSensors.nne - (int)ringSensors.nnw) < ALIGNED_THRESHOLD) {
-    ROS_INFO("switch to set distance");
-    state = MappingState::SETDISTANCE;
-  }
+//   // TODO: this is bullshit, won't work for large deviation from wall
+//   if (ringSensors.nne > 20000 &&
+//       abs((int)ringSensors.nne - (int)ringSensors.nnw) < ALIGNED_THRESHOLD) {
+//     ROS_INFO("switch to set distance");
+//     state = MappingState::SET_DISTANCE;
+//   }
 
-  // naive approach, twist robot such that front sensor values are equalized
-  if (ringSensors.nne < 20000) {
-    twist->angular.z = -0.2;
-  } else {
-    if (ringSensors.nne > ringSensors.nnw) {
-      twist->angular.z = -0.1;
-    } else {
-      twist->angular.z = 0.1;
-    }
-  }
-}
+//   // naive approach, twist robot such that front sensor values are equalized
+//   if (ringSensors.nne < 20000) {
+//     twist->angular.z = -0.2;
+//   } else {
+//     if (ringSensors.nne > ringSensors.nnw) {
+//       twist->angular.z = -0.1;
+//     } else {
+//       twist->angular.z = 0.1;
+//     }
+//   }
+// }
 
-void setDistance(geometry_msgs::Twist *twist) {
+void
+setDistance(geometry_msgs::Twist* twist, MappingState _nextState = MappingState::ALIGN_BOUNDARY)
+{
   auto distance = (ringSensors.nne + ringSensors.nnw) / 2;
 
   if (abs((int)distance - (int)TARGET_DISTANCE) < ALIGNED_THRESHOLD) {
     ROS_INFO("turn right");
     align();
     wallDir = WallDirection::LEFT;
-    state = MappingState::ALIGNTOBOUNDARY;
+    state = _nextState;
     return;
   }
 
@@ -319,42 +347,46 @@ void setDistance(geometry_msgs::Twist *twist) {
     twist->linear.x = -0.01;
 }
 
-void setDistanceCorner(geometry_msgs::Twist *twist) {
+void
+setDistanceCorner(geometry_msgs::Twist* twist)
+{
   setDistance(twist);
 
-  if (state == MappingState::ALIGNTOBOUNDARY) {
+  if (state == MappingState::ALIGN_BOUNDARY) {
     if (cornerIndex % 2 == 0) {
       for (int i = 0; i <= cornerIndex; i++) {
         auto point = corners[i];
         auto distance = abs(x - point.x) + abs(y - point.y);
         ROS_INFO("distance to %dth corner: %f", i, distance);
         if (distance < 0.2) {
-          writePath(Point{.x = point.x - x, .y = point.y - y});
+          writePath(Point{ .x = point.x - x, .y = point.y - y });
           turnAround();
           nextState = MappingState::STRIP_MAP;
-          // state = MappingState::ALIGNTOGOAL;
+          // state = MappingState::ALIGN_GOAL;
           // goal = corners[2];
           return;
         }
       }
     }
     ROS_INFO("marked %dth corner at (%f, %f)", cornerIndex, x, y);
-    corners[cornerIndex++] = Point{.x = x, .y = y};
+    corners[cornerIndex++] = Point{ .x = x, .y = y };
 
     auto prevCorner =
-        cornerIndex > 1 ? corners[cornerIndex - 2] : Point{.x = 0, .y = 0};
+      cornerIndex > 1 ? corners[cornerIndex - 2] : Point{ .x = 0, .y = 0 };
     auto currentCorner = corners[cornerIndex - 1];
 
     if (abs(prevCorner.x - currentCorner.x) < 0.5)
-      writePath(Point{.x = prevCorner.x - currentCorner.x, .y = 0});
+      writePath(Point{ .x = prevCorner.x - currentCorner.x, .y = 0 });
     else
-      writePath(Point{.x = 0, .y = prevCorner.y - currentCorner.y});
+      writePath(Point{ .x = 0, .y = prevCorner.y - currentCorner.y });
 
     return;
   }
 }
 
-void traceBoundary(geometry_msgs::Twist *twist, float _limit = -1) {
+void
+traceBoundary(geometry_msgs::Twist* twist, float _limit = -1)
+{
   if (ringSensors.nne > TARGET_DISTANCE) {
     if (_limit > 0 && stripMapDistance < _limit) {
       state = MappingState::STOP;
@@ -362,52 +394,61 @@ void traceBoundary(geometry_msgs::Twist *twist, float _limit = -1) {
       return;
     }
 
-    state = MappingState::SETDISTANCECORNER;
+    state = MappingState::SET_DISTANCE_CORNER;
     return;
   }
 
   if (_limit > 0 && stripMapDistance > _limit) {
     ROS_INFO("trace limit (%f) reached!", _limit);
     align();
-    state = MappingState::ALIGNTOBOUNDARY;
+    state = MappingState::ALIGN_BOUNDARY;
     wallDir = WallDirection::BACK;
     nextState = MappingState::STRIP_CROSS;
     return;
   }
 
   switch (wallDir) {
-  case WallDirection::LEFT:
-    twist->angular.z = ringSensors.wnw > ringSensors.wsw ? -0.02 : 0.02;
-    break;
-  case WallDirection::RIGHT:
-    twist->angular.z = ringSensors.ene > ringSensors.ese ? 0.02 : -0.02;
-    break;
-  default:
-    break;
+    case WallDirection::LEFT:
+      twist->angular.z = ringSensors.wnw > ringSensors.wsw ? -0.02 : 0.02;
+      break;
+    case WallDirection::RIGHT:
+      twist->angular.z = ringSensors.ene > ringSensors.ese ? 0.02 : -0.02;
+      break;
+    default:
+      break;
   }
 
   twist->linear.x = 0.08;
 }
 
-void alignWithBoundary(geometry_msgs::Twist *twist,
-                       MappingState _nextState = MappingState::TRACEBOUNDARY,
-                       bool _align = true) {
+void
+alignWithBoundary(geometry_msgs::Twist* twist,
+                  MappingState _nextState = MappingState::TRACE_BOUNDARY,
+                  bool _align = true)
+{
   unsigned int sensorDiff;
+  bool freeSightCondition = ringSensors.nne < TARGET_DISTANCE - 1000 &&
+                            ringSensors.nnw < TARGET_DISTANCE - 1000;
 
   switch (wallDir) {
-  case WallDirection::LEFT:
-    sensorDiff = abs((int)ringSensors.wsw - (int)ringSensors.wnw);
-    break;
-  case WallDirection::RIGHT:
-    sensorDiff = abs((int)ringSensors.ese - (int)ringSensors.ene);
-    break;
-  case WallDirection::BACK:
-    sensorDiff = abs((int)ringSensors.ssw - (int)ringSensors.sse);
-    break;
-  case WallDirection::UNKNOWN:
-  default:
-    ROS_WARN("cannot align whith unknown wall direction!");
-    return;
+    case WallDirection::BACK:
+      sensorDiff = abs((int)ringSensors.ssw - (int)ringSensors.sse);
+      break;
+    case WallDirection::FRONT:
+      sensorDiff = abs((int)ringSensors.nnw - (int)ringSensors.nne);
+      freeSightCondition = ringSensors.sse < TARGET_DISTANCE - 1000 &&
+                           ringSensors.ssw < TARGET_DISTANCE - 1000;
+      break;
+    case WallDirection::LEFT:
+      sensorDiff = abs((int)ringSensors.wsw - (int)ringSensors.wnw);
+      break;
+    case WallDirection::RIGHT:
+      sensorDiff = abs((int)ringSensors.ese - (int)ringSensors.ene);
+      break;
+    case WallDirection::UNKNOWN:
+    default:
+      ROS_WARN("cannot align whith unknown wall direction!");
+      return;
   }
 
   float minPhiDiff = 100.0;
@@ -418,21 +459,26 @@ void alignWithBoundary(geometry_msgs::Twist *twist,
     }
   }
 
-  if (ringSensors.nne < TARGET_DISTANCE - 1000 &&
-      ringSensors.nnw < TARGET_DISTANCE - 1000) {
-        ROS_INFO("align phiDiff: %d, align sensorDiff: %d", minPhiDiff < 0.25, sensorDiff < ALIGNED_THRESHOLD);
-        if (minPhiDiff < 0.25 && sensorDiff < ALIGNED_THRESHOLD) {
-          state = _nextState;
-          if (_align)
-            align();
-          return;
-        }
-      }
+  if (wallDir && freeSightCondition) {
+    ROS_INFO("align phiDiff: %d, align sensorDiff: %d",
+             minPhiDiff < 0.25,
+             sensorDiff < ALIGNED_THRESHOLD);
+    if (minPhiDiff < 0.25 && sensorDiff < ALIGNED_THRESHOLD) {
+      state = _nextState;
+
+      if (_align)
+        align();
+
+      return;
+    }
+  }
 
   twist->angular.z = wallDir == WallDirection::LEFT ? -0.1 : 0.1;
 }
 
-void alignToGoal(geometry_msgs::Twist *twist) {
+void
+alignToGoal(geometry_msgs::Twist* twist)
+{
   auto alpha = atan2(goal.y - y, goal.x - x);
   ROS_INFO("alpha calculated: %f", alpha);
   goal.phi = fmod(alpha + 2 * M_PI, 2 * M_PI);
@@ -441,10 +487,12 @@ void alignToGoal(geometry_msgs::Twist *twist) {
   state = MappingState::ALIGN;
 }
 
-void checkAlignment(geometry_msgs::Twist *twist) {
+void
+checkAlignment(geometry_msgs::Twist* twist)
+{
   if (abs(goal.phi - phi) < 0.05) {
     ROS_INFO("reached goal orientation");
-    state = MappingState::MOVETOGOAL;
+    state = MappingState::MOVE_GOAL;
     goalStart = ros::Time::now();
     return;
   }
@@ -459,10 +507,12 @@ void checkAlignment(geometry_msgs::Twist *twist) {
     twist->angular.z = 0.1;
 }
 
-void moveToGoal(geometry_msgs::Twist *twist) {
+void
+moveToGoal(geometry_msgs::Twist* twist)
+{
   if (abs(goal.x - x) + abs(goal.y - y) < 0.1) {
     state = MappingState::STOP;
-    writePath(Point{x = 0, y = 0});
+    writePath(Point{ x = 0, y = 0 });
     ROS_INFO("reached goal position in %f seconds",
              (ros::Time::now() - goalStart).toSec());
     return;
@@ -471,15 +521,15 @@ void moveToGoal(geometry_msgs::Twist *twist) {
   if (ringSensors.nne > TARGET_DISTANCE || ringSensors.nnw > TARGET_DISTANCE) {
     ROS_INFO("realign..");
     // TODO: or avoid/identify obstacle..
-    state = MappingState::ALIGNTOBOUNDARY;
-    nextState = MappingState::FINDCORNER;
+    state = MappingState::ALIGN_BOUNDARY;
+    nextState = MappingState::FIND_CORNER;
 
     if (ringSensors.nnw > ringSensors.nne)
       wallDir = WallDirection::LEFT;
     else
       wallDir = WallDirection::RIGHT;
 
-    findCornerStart = Point{.x = x, .y = y};
+    findCornerStart = Point{ .x = x, .y = y };
     return;
   }
 
@@ -500,13 +550,15 @@ void moveToGoal(geometry_msgs::Twist *twist) {
 }
 
 // TODO: add outer corner
-void findCorner(geometry_msgs::Twist *twist) {
+void
+findCorner(geometry_msgs::Twist* twist)
+{
   traceBoundary(twist);
 
-  if (state == MappingState::SETDISTANCECORNER) {
+  if (state == MappingState::SET_DISTANCE_CORNER) {
     // TODO: if deviation to goal is too big -> assume obstacle!
     if (goalSet) {
-      writePath(Point{.x = goal.x - x, .y = goal.y - y});
+      writePath(Point{ .x = goal.x - x, .y = goal.y - y });
       // assume we are at the goal now..
       x = goal.x;
       y = goal.y;
@@ -519,13 +571,13 @@ void findCorner(geometry_msgs::Twist *twist) {
         ROS_INFO("findCorner: distance to %dth corner: %f", i, distance);
 
         if (distance < 0.2) {
-          writePath(Point{.x = point.x - x, .y = point.y - y});
+          writePath(Point{ .x = point.x - x, .y = point.y - y });
 
           x = point.x;
           y = point.y;
 
-          turnAround();          
-          state = MappingState::ALIGNTOBOUNDARY;
+          turnAround();
+          state = MappingState::ALIGN_BOUNDARY;
           nextState = MappingState::STRIP_MAP;
 
           return;
@@ -535,12 +587,14 @@ void findCorner(geometry_msgs::Twist *twist) {
   }
 }
 
-void stripCross(geometry_msgs::Twist *twist) {
+void
+stripCross(geometry_msgs::Twist* twist)
+{
   if (ringSensors.nne > TARGET_DISTANCE || ringSensors.nnw > TARGET_DISTANCE) {
     // TODO: or detect obstacle..
 
     nextState = MappingState::STRIP_CORRECT;
-    state = MappingState::ALIGNTOBOUNDARY;
+    state = MappingState::ALIGN_BOUNDARY;
     turnAround();
     return;
   }
@@ -548,74 +602,82 @@ void stripCross(geometry_msgs::Twist *twist) {
   twist->linear.x = 0.1;
 }
 
-void mainLoop() {
+void
+mainLoop()
+{
   // early return if no sensor simulation yet
   if (ringSensors.wnw < 1)
     return;
 
   geometry_msgs::Twist twist;
   switch (state) {
-  case MappingState::INIT:
-    state = MappingState::TURNTOBOUNDARY;
-    break;
-  case MappingState::TURNTOBOUNDARY:
-    turnToBoundary(&twist);
-    break;
-  case MappingState::SETDISTANCE:
-    setDistance(&twist);
-    break;
-  case MappingState::SETDISTANCECORNER:
-    setDistanceCorner(&twist);
-    break;
-  case MappingState::ALIGNTOBOUNDARY:
-    alignWithBoundary(&twist, nextState);
-    break;
-  case MappingState::TRACEBOUNDARY:
-    traceBoundary(&twist);
-    break;
-  case MappingState::ALIGNTOGOAL:
-    alignToGoal(&twist);
-    break;
-  case MappingState::ALIGN:
-    checkAlignment(&twist);
-    break;
-  case MappingState::MOVETOGOAL:
-    moveToGoal(&twist);
-    break;
-  case MappingState::FINDCORNER:
-    findCorner(&twist);
-  case MappingState::STRIP_MAP: // TODO: function..
-    stripLimit += stripLimitIncrement;
-    state = MappingState::STRIP_TRACE;
-    previousWallDirection = wallDir;
-    stripMapDistance = 0.0;
-    break;
-  case MappingState::STRIP_TRACE:
-    traceBoundary(&twist, stripLimit);
-    break;
-  case MappingState::STRIP_CROSS:
-    // TODO: start path recording here!
-    stripCross(&twist);
-    break;
-  case MappingState::STRIP_CORRECT:
-    // TODO: add flag to indicate strip map step
-    findCorner(&twist);
-    break;
-  case MappingState::STOP:
-    break;
+    case MappingState::INIT:
+      wallDir = WallDirection::FRONT;
+      state = MappingState::ALIGN_BOUNDARY;
+      nextState = MappingState::SET_DISTANCE;
+      break;
+    case MappingState::RESET:
+      recordedPathLength = 0;
+      x = y = phi = 0;
+      align();
+      state = MappingState::ALIGN_BOUNDARY;
+      nextState = MappingState::TRACE_BOUNDARY;
+      break;
+    case MappingState::SET_DISTANCE:
+      nextState = MappingState::RESET;
+      setDistance(&twist);
+      break;
+    case MappingState::SET_DISTANCE_CORNER:
+      setDistanceCorner(&twist);
+      break;
+    case MappingState::ALIGN_BOUNDARY:
+      alignWithBoundary(&twist, nextState);
+      break;
+    case MappingState::TRACE_BOUNDARY:
+      traceBoundary(&twist);
+      break;
+    case MappingState::ALIGN_GOAL:
+      alignToGoal(&twist);
+      break;
+    case MappingState::ALIGN:
+      checkAlignment(&twist);
+      break;
+    case MappingState::MOVE_GOAL:
+      moveToGoal(&twist);
+      break;
+    case MappingState::FIND_CORNER:
+      findCorner(&twist);
+    case MappingState::STRIP_MAP: // TODO: function..
+      stripLimit += stripLimitIncrement;
+      state = MappingState::STRIP_TRACE;
+      previousWallDirection = wallDir;
+      stripMapDistance = 0.0;
+      break;
+    case MappingState::STRIP_TRACE:
+      traceBoundary(&twist, stripLimit);
+      break;
+    case MappingState::STRIP_CROSS:
+      // TODO: start path recording here!
+      stripCross(&twist);
+      break;
+    case MappingState::STRIP_CORRECT:
+      // TODO: add flag to indicate strip map step
+      findCorner(&twist);
+      break;
+    case MappingState::STOP:
+      break;
   }
-
-  if (state != MappingState::TURNTOBOUNDARY &&
-      state != MappingState::SETDISTANCE)
-    publishTwist(&twist);
-  else
-    twistPub.publish(twist);
+  
+  publishTwist(&twist);  
 }
 
-void process(const nav_msgs::Odometry::ConstPtr &odom) {
+void
+process(const nav_msgs::Odometry::ConstPtr& odom)
+{
   // Get the rotations of the robot
   double roll, pitch, yaw;
-  tf::Quaternion q(odom->pose.pose.orientation.x, odom->pose.pose.orientation.y,
+  tf::Quaternion q(odom->pose.pose.orientation.x,
+                   odom->pose.pose.orientation.y,
                    odom->pose.pose.orientation.z,
                    odom->pose.pose.orientation.w);
   tf::Matrix3x3 m(q);
@@ -641,8 +703,9 @@ void process(const nav_msgs::Odometry::ConstPtr &odom) {
   }
 }
 
-int main(int argc, char *argv[]) {
-
+int
+main(int argc, char* argv[])
+{
   ROS_INFO("Start: %s", programName.c_str());
 
   // Init ROS
@@ -650,11 +713,11 @@ int main(int argc, char *argv[]) {
   ros::NodeHandle node("~");
 
   // Handle parameters
-  node.param<string>("ros_listener_topic_odom", rosListenerTopicOdom,
-                     "/amiro1/odom");
+  node.param<string>(
+    "ros_listener_topic_odom", rosListenerTopicOdom, "/amiro1/odom");
   node.param<string>("ros_publisher_topic_map", rosPublisherTopicMap, "/map");
-  node.param<string>("ros_publisher_topic_cmd", rosPublisherTopicCmd,
-                     "/amiro1/cmd_vel");
+  node.param<string>(
+    "ros_publisher_topic_cmd", rosPublisherTopicCmd, "/amiro1/cmd_vel");
 
   node.param<int>("dimension_x", dimensionX, 5);
   node.param<int>("dimension_y", dimensionY, 5);
@@ -675,7 +738,7 @@ int main(int argc, char *argv[]) {
   pub = node.advertise<nav_msgs::OccupancyGrid>(rosPublisherTopicMap, 1);
   twistPub = node.advertise<geometry_msgs::Twist>(rosPublisherTopicCmd, 1);
   ros::Subscriber floorSub =
-      node.subscribe("/amiro1/proximity_ring/values", 1, ringSubCallback);
+    node.subscribe("/amiro1/proximity_ring/values", 1, ringSubCallback);
 
   // sub to odom topic (only for reference..)
   ros::Subscriber odomSub = node.subscribe(rosListenerTopicOdom, 1, process);
