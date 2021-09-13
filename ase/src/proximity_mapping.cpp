@@ -141,7 +141,7 @@ const auto minROSTimePoint = ros::Time(0); // TODO: ew, please no eq check
 auto lastROSPublish = minROSTimePoint;
 
 float stripLimit = 0.0;
-float stripLimitIncrement = 0.1;
+float stripLimitIncrement = 0.2;
 float stripMapDistance = 0.0;
 
 void
@@ -431,13 +431,13 @@ alignWithBoundary(geometry_msgs::Twist* twist,
                             ringSensors.nnw < TARGET_DISTANCE - 1000;
 
   switch (wallDir) {
-    case WallDirection::BACK:
+    case WallDirection::BACK:      
       sensorDiff = abs((int)ringSensors.ssw - (int)ringSensors.sse);
       break;
     case WallDirection::FRONT:
       sensorDiff = abs((int)ringSensors.nnw - (int)ringSensors.nne);
-      freeSightCondition = ringSensors.sse < TARGET_DISTANCE - 1000 &&
-                           ringSensors.ssw < TARGET_DISTANCE - 1000;
+      freeSightCondition = ringSensors.sse < TARGET_DISTANCE &&
+                           ringSensors.ssw < TARGET_DISTANCE;
       break;
     case WallDirection::LEFT:
       sensorDiff = abs((int)ringSensors.wsw - (int)ringSensors.wnw);
@@ -447,7 +447,7 @@ alignWithBoundary(geometry_msgs::Twist* twist,
       break;
     case WallDirection::UNKNOWN:
     default:
-      ROS_WARN("cannot align whith unknown wall direction!");
+      ROS_WARN("cannot align with unknown wall direction!");
       return;
   }
 
@@ -459,7 +459,7 @@ alignWithBoundary(geometry_msgs::Twist* twist,
     }
   }
 
-  if (wallDir && freeSightCondition) {
+  if (wallDir != WallDirection::UNKNOWN && freeSightCondition) {
     ROS_INFO("align phiDiff: %d, align sensorDiff: %d",
              minPhiDiff < 0.25,
              sensorDiff < ALIGNED_THRESHOLD);
@@ -647,6 +647,7 @@ mainLoop()
       break;
     case MappingState::FIND_CORNER:
       findCorner(&twist);
+      break;
     case MappingState::STRIP_MAP: // TODO: function..
       stripLimit += stripLimitIncrement;
       state = MappingState::STRIP_TRACE;
