@@ -18,6 +18,7 @@
 #include <tf/transform_datatypes.h>
 
 #include <cmath>
+#include <stack>
 // OpenCV
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -57,7 +58,7 @@ static nav_msgs::OccupancyGrid ogm;
 double robotOffsetX = dimensionX / 2.0f;
 double robotOffsetY = dimensionY / 2.0f;
 
-const unsigned int ALIGNED_THRESHOLD = 200;
+const unsigned int ALIGNED_THRESHOLD = 300;
 const unsigned int TARGET_DISTANCE = 47000;
 const unsigned int MAX_PATH_LENGTH = 1000;
 const float PHI_OFFSET_FACTOR = 0.95; // 0.9 seems to be good
@@ -113,7 +114,8 @@ struct Point
 };
 
 MappingState state = MappingState::INIT;
-MappingState nextState = MappingState::TRACE_BOUNDARY;
+// MappingState nextState = MappingState::TRACE_BOUNDARY;
+std::stack<MappingState> stateStack;
 
 float x = 0.0;
 float y = 0.0;
@@ -143,6 +145,69 @@ auto lastROSPublish = minROSTimePoint;
 float stripLimit = 0.0;
 float stripLimitIncrement = 0.2;
 float stripMapDistance = 0.0;
+
+void
+printState(MappingState _state = state)
+{
+  switch (_state) {
+    case MappingState::ALIGN_BOUNDARY:
+      ROS_INFO("ALIGN_BOUNDARY");
+      break;
+    case MappingState::ALIGN_GOAL:
+      ROS_INFO("ALIGN_GOAL");
+      break;
+    case MappingState::ALIGN:
+      ROS_INFO("ALIGN");
+      break;
+    case MappingState::FIND_CORNER:
+      ROS_INFO("FIND_CORNER");
+      break;
+    case MappingState::INIT:
+      ROS_INFO("INIT");
+      break;
+    case MappingState::MOVE_GOAL:
+      ROS_INFO("MOVE_GOAL");
+      break;
+    case MappingState::RESET:
+      ROS_INFO("RESET");
+      break;
+    case MappingState::SET_DISTANCE_CORNER:
+      ROS_INFO("SET_DISTANCE_CORNER");
+      break;
+    case MappingState::SET_DISTANCE:
+      ROS_INFO("SET_DISTANCE");
+      break;
+    case MappingState::STOP:
+      ROS_INFO("STOP");
+      break;
+    case MappingState::STRIP_CORRECT:
+      ROS_INFO("STRIP_CORRECT");
+      break;
+    case MappingState::STRIP_CROSS:
+      ROS_INFO("STRIP_CROSS");
+      break;
+    case MappingState::STRIP_MAP:
+      ROS_INFO("STRIP_MAP");
+      break;
+    case MappingState::STRIP_TRACE:
+      ROS_INFO("STRIP_TRACE");
+      break;
+    case MappingState::TRACE_BOUNDARY:
+      ROS_INFO("TRACE_BOUNDARY");
+      break;
+    default:
+      break;
+  }
+}
+
+void
+printStateStackTop()
+{
+  if (!stateStack.empty()) {
+    ROS_INFO("top of stack:");
+    printState(stateStack.top());
+  }
+}
 
 void
 align()
@@ -329,15 +394,23 @@ publishTwist(geometry_msgs::Twist* twist)
 // }
 
 void
-setDistance(geometry_msgs::Twist* twist, MappingState _nextState = MappingState::ALIGN_BOUNDARY)
+setDistance(geometry_msgs::Twist* twist)
 {
   auto distance = (ringSensors.nne + ringSensors.nnw) / 2;
 
   if (abs((int)distance - (int)TARGET_DISTANCE) < ALIGNED_THRESHOLD) {
-    ROS_INFO("turn right");
     align();
-    wallDir = WallDirection::LEFT;
-    state = _nextState;
+    wallDir = previousWallDirection != WallDirection::UNKNOWN
+                ? previousWallDirection
+                : WallDirection::LEFT;
+
+    if (stateStack.empty()) {
+      state = MappingState::ALIGN_BOUNDARY;
+    } else {
+      state = stateStack.top();
+      stateStack.pop();
+    }
+
     return;
   }
 
@@ -361,7 +434,8 @@ setDistanceCorner(geometry_msgs::Twist* twist)
         if (distance < 0.2) {
           writePath(Point{ .x = point.x - x, .y = point.y - y });
           turnAround();
-          nextState = MappingState::STRIP_MAP;
+          stateStack.push(MappingState::STRIP_MAP);
+          // nextState = MappingState::STRIP_MAP;
           // state = MappingState::ALIGN_GOAL;
           // goal = corners[2];
           return;
@@ -387,6 +461,10 @@ setDistanceCorner(geometry_msgs::Twist* twist)
 void
 traceBoundary(geometry_msgs::Twist* twist, float _limit = -1)
 {
+  // TODO: add ability to detect outer corners.
+  // check if the sensors in the respective wall direction deliver smaller reads
+  // than expected and mark a corner there. however, I am unsure how to set the
+  // correct distance again..
   if (ringSensors.nne > TARGET_DISTANCE) {
     if (_limit > 0 && stripMapDistance < _limit) {
       state = MappingState::STOP;
@@ -403,7 +481,8 @@ traceBoundary(geometry_msgs::Twist* twist, float _limit = -1)
     align();
     state = MappingState::ALIGN_BOUNDARY;
     wallDir = WallDirection::BACK;
-    nextState = MappingState::STRIP_CROSS;
+    stateStack.push(MappingState::STRIP_CROSS);
+    // nextState = MappingState::STRIP_CROSS;
     return;
   }
 
@@ -422,22 +501,20 @@ traceBoundary(geometry_msgs::Twist* twist, float _limit = -1)
 }
 
 void
-alignWithBoundary(geometry_msgs::Twist* twist,
-                  MappingState _nextState = MappingState::TRACE_BOUNDARY,
-                  bool _align = true)
+alignWithBoundary(geometry_msgs::Twist* twist, bool _align = true)
 {
   unsigned int sensorDiff;
   bool freeSightCondition = ringSensors.nne < TARGET_DISTANCE - 1000 &&
                             ringSensors.nnw < TARGET_DISTANCE - 1000;
 
   switch (wallDir) {
-    case WallDirection::BACK:      
+    case WallDirection::BACK:
       sensorDiff = abs((int)ringSensors.ssw - (int)ringSensors.sse);
       break;
     case WallDirection::FRONT:
       sensorDiff = abs((int)ringSensors.nnw - (int)ringSensors.nne);
-      freeSightCondition = ringSensors.sse < TARGET_DISTANCE &&
-                           ringSensors.ssw < TARGET_DISTANCE;
+      freeSightCondition =
+        ringSensors.sse < TARGET_DISTANCE && ringSensors.ssw < TARGET_DISTANCE;
       break;
     case WallDirection::LEFT:
       sensorDiff = abs((int)ringSensors.wsw - (int)ringSensors.wnw);
@@ -460,11 +537,16 @@ alignWithBoundary(geometry_msgs::Twist* twist,
   }
 
   if (wallDir != WallDirection::UNKNOWN && freeSightCondition) {
-    ROS_INFO("align phiDiff: %d, align sensorDiff: %d",
-             minPhiDiff < 0.25,
-             sensorDiff < ALIGNED_THRESHOLD);
-    if (minPhiDiff < 0.25 && sensorDiff < ALIGNED_THRESHOLD) {
-      state = _nextState;
+    // ROS_INFO("align phiDiff: %d, align sensorDiff: %d",
+    //          minPhiDiff < 0.4,
+    //          sensorDiff < ALIGNED_THRESHOLD);
+    if (minPhiDiff < 0.3 && sensorDiff < ALIGNED_THRESHOLD) {
+      if (stateStack.empty()) {
+        state = MappingState::TRACE_BOUNDARY;
+      } else {
+        state = stateStack.top();
+        stateStack.pop();
+      }
 
       if (_align)
         align();
@@ -473,7 +555,10 @@ alignWithBoundary(geometry_msgs::Twist* twist,
     }
   }
 
-  twist->angular.z = wallDir == WallDirection::LEFT ? -0.1 : 0.1;
+  twist->angular.z = wallDir == WallDirection::LEFT ||
+                         previousWallDirection == WallDirection::LEFT
+                       ? -0.1
+                       : 0.1;
 }
 
 void
@@ -522,7 +607,8 @@ moveToGoal(geometry_msgs::Twist* twist)
     ROS_INFO("realign..");
     // TODO: or avoid/identify obstacle..
     state = MappingState::ALIGN_BOUNDARY;
-    nextState = MappingState::FIND_CORNER;
+    stateStack.push(MappingState::FIND_CORNER);
+    // nextState = MappingState::FIND_CORNER;
 
     if (ringSensors.nnw > ringSensors.nne)
       wallDir = WallDirection::LEFT;
@@ -577,8 +663,13 @@ findCorner(geometry_msgs::Twist* twist)
           y = point.y;
 
           turnAround();
-          state = MappingState::ALIGN_BOUNDARY;
-          nextState = MappingState::STRIP_MAP;
+
+          // TODO: ough, that's a mess
+          previousWallDirection = wallDir;
+          state = MappingState::SET_DISTANCE;
+          stateStack.push(MappingState::STRIP_MAP);
+          stateStack.push(MappingState::ALIGN_BOUNDARY);
+          // nextState = MappingState::STRIP_MAP;
 
           return;
         }
@@ -593,8 +684,10 @@ stripCross(geometry_msgs::Twist* twist)
   if (ringSensors.nne > TARGET_DISTANCE || ringSensors.nnw > TARGET_DISTANCE) {
     // TODO: or detect obstacle..
 
-    nextState = MappingState::STRIP_CORRECT;
-    state = MappingState::ALIGN_BOUNDARY;
+    stateStack.push(MappingState::STRIP_CORRECT);
+    stateStack.push(MappingState::ALIGN_BOUNDARY);
+    // nextState = MappingState::STRIP_CORRECT;
+    state = MappingState::SET_DISTANCE;
     turnAround();
     return;
   }
@@ -614,24 +707,28 @@ mainLoop()
     case MappingState::INIT:
       wallDir = WallDirection::FRONT;
       state = MappingState::ALIGN_BOUNDARY;
-      nextState = MappingState::SET_DISTANCE;
+      stateStack.push(MappingState::RESET);
+      stateStack.push(MappingState::SET_DISTANCE);
+      // nextState = MappingState::SET_DISTANCE;
       break;
     case MappingState::RESET:
       recordedPathLength = 0;
       x = y = phi = 0;
       align();
       state = MappingState::ALIGN_BOUNDARY;
-      nextState = MappingState::TRACE_BOUNDARY;
+      stateStack.push(MappingState::TRACE_BOUNDARY);
+      // nextState = MappingState::TRACE_BOUNDARY;
       break;
     case MappingState::SET_DISTANCE:
-      nextState = MappingState::RESET;
+      // nextState = MappingState::RESET;
+      // stateStack.push(MappingState::RESET);
       setDistance(&twist);
       break;
     case MappingState::SET_DISTANCE_CORNER:
       setDistanceCorner(&twist);
       break;
     case MappingState::ALIGN_BOUNDARY:
-      alignWithBoundary(&twist, nextState);
+      alignWithBoundary(&twist);
       break;
     case MappingState::TRACE_BOUNDARY:
       traceBoundary(&twist);
@@ -668,8 +765,8 @@ mainLoop()
     case MappingState::STOP:
       break;
   }
-  
-  publishTwist(&twist);  
+
+  publishTwist(&twist);
 }
 
 void
@@ -757,7 +854,7 @@ main(int argc, char* argv[])
   hit = cv::Mat(mapDimensionY, mapDimensionX, mattypecv, cv::Scalar(1));
   miss = cv::Mat(mapDimensionY, mapDimensionX, mattypecv, cv::Scalar(1));
 
-  ros::Rate r(100);
+  ros::Rate r(50);
   auto iter = 0;
   while (ros::ok()) {
     ros::spinOnce();
@@ -767,6 +864,8 @@ main(int argc, char* argv[])
     if (!(++iter % (3 * mapIterRange))) {
       ROS_INFO("x: %f y: %f phi: %f", x, y, phi);
       ogm.header.stamp = ros::Time::now();
+      printState();
+      printStateStackTop();
       showMap();
     }
   }
