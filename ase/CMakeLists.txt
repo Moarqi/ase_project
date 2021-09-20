@@ -38,6 +38,7 @@ include_directories(
   ${OpenCV_INCLUDE_DIRS}
   ${Boost_INCLUDE_DIR}
   includes
+  src/lib
 )
 
 add_executable(mapping

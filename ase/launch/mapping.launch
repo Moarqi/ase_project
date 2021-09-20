@@ -12,7 +12,7 @@
 
   <!-- We resume the logic in empty_world.launch, changing only the name of the world to be launched -->
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
-    <arg name="world_name" value="$(find ase)/worlds/lwall_rl.world"/>
+    <arg name="world_name" value="$(find ase)/worlds/lwall_rl_obstacles.world"/>
     <arg name="debug" value="$(arg gz_debug)" />
     <arg name="gui" value="$(arg gz_gui)" />
     <arg name="paused" value="$(arg paused)"/>
